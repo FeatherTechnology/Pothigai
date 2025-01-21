@@ -16,10 +16,8 @@ $month_paid = "SELECT COALESCE(SUM(c.collection_amount), 0) AS month_paid
 
 // Add conditions based on branchId
 if ($branchId !== null && $branchId !== '' && $branchId !== '0') {
-    $month_paid .= " AND gc.branch = '$branchId' AND  gc.insert_login_id = '$user_id' ";
-} else {
-    $month_paid .= " AND gc.insert_login_id = '$user_id' ";
-}
+    $month_paid .= " AND gc.branch = '$branchId' ";
+} 
 $month_paid .= "GROUP BY gc.grp_id";
 
 // Initialize the SQL for unpaid amount calculation
@@ -62,14 +60,12 @@ LEFT JOIN collection c
 WHERE 
     MONTH(ad.date) = MONTH('$current_date') 
     AND YEAR(ad.date) = YEAR('$current_date')
-    AND ad.status IN (2, 3) AND ";
+    AND ad.status IN (2, 3) ";
 
 // Add conditions based on branchId for unpaid amount
 if ($branchId !== null && $branchId !== '' && $branchId !== '0') {
-    $month_unpaid .= " gc.branch = '$branchId' AND  gc.insert_login_id = '$user_id' ";
-} else {
-    $month_unpaid .= " gc.insert_login_id = '$user_id' ";
-}
+    $month_unpaid .= " AND gc.branch = '$branchId'";
+} 
 $month_unpaid .= " GROUP BY gs.grp_creation_id";
 
 $prev_pen_amount  = "SELECT (
@@ -92,14 +88,12 @@ $prev_pen_amount  = "SELECT (
                             AND ad.status IN (2, 3)
                         )
                     ) AS pending_amount
-                    FROM group_creation gc WHERE  ";
+                    FROM group_creation gc ";
 
 // Add conditions based on branchId for unpaid amount
 if ($branchId !== null && $branchId !== '' && $branchId !== '0') {
-    $prev_pen_amount .= " gc.branch = '$branchId' AND gc.insert_login_id = '$user_id' ";
-} else {
-    $prev_pen_amount .= " gc.insert_login_id = '$user_id' ";
-}
+    $prev_pen_amount .= "WHERE gc.branch = '$branchId'";
+} 
 $qryCount = "SELECT
     gs.id, 
     COALESCE((la.chit_amount * gs.share_percent / 100), 0) AS total_chit_amount,
@@ -131,14 +125,18 @@ LEFT JOIN collection c ON gs.id = c.share_id
         WHERE share_id = gs.id 
         AND auction_month = la.last_auction_month
     )   
+JOIN group_creation gc ON gs.grp_creation_id = gc.grp_id  
 WHERE
     c.share_id IS NULL  
     OR (c.payable != c.collection_amount)
-GROUP BY
-    gs.id
-ORDER BY
-    gs.id;
 ";
+if ($branchId !== null && $branchId !== '' && $branchId !== '0') {
+    $qryCount .= " AND gc.branch = '$branchId' ";
+} 
+$qryCount .= "GROUP BY
+gs.id
+ORDER BY
+gs.id";
 
 $stmtCount = $pdo->query($qryCount);
 $mappings = $stmtCount->fetchAll(PDO::FETCH_ASSOC);
@@ -164,15 +162,22 @@ foreach ($mappings as $mapping) {
     $previous_amount = $total_chit_amount - $total_collection_amount;  // Calculate previous amount
 
     // Now, calculate the pending amount for the current date
-    $qry2 = "SELECT 
-    COALESCE(LEAST($previous_amount, COALESCE(SUM(c.collection_amount), 0)), 0) AS total_amount
-FROM 
-    collection c
-WHERE 
-    c.share_id = '$map_id'
-    AND MONTH(c.collection_date) = MONTH('$current_date')
-    AND YEAR(c.collection_date) = YEAR('$current_date');
-";
+    $qry2 = "
+    SELECT 
+        COALESCE(
+            LEAST(
+                $previous_amount, 
+                COALESCE(SUM(IF(c.chit_amount = 0, 0, c.collection_amount)), 0)
+            ), 
+            0
+        ) AS total_amount
+    FROM 
+        collection c
+    WHERE 
+        c.share_id = '$map_id'
+        AND MONTH(c.collection_date) = MONTH('$current_date')
+        AND YEAR(c.collection_date) = YEAR('$current_date');
+    ";
 
     // Directly execute the query using query()
     $stmt2 = $pdo->query($qry2);
@@ -185,11 +190,7 @@ WHERE
         $total_amount += $result5['total_amount'];  // Sum total amounts
     }
 }
-
-
-
 // Now, $total_pending_amount contains the total pending amount for all mappings
-
 try {
 
     // Query for total paid
