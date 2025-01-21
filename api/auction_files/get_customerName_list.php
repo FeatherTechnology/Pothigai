@@ -20,10 +20,10 @@ if (isset($group_id) && !empty($group_id) && isset($auction_month) && !empty($au
 
     // Get the list of customer names already in other_transaction for this group
     $transaction_qry = "
-        SELECT group_mem 
-        FROM other_transaction 
-        WHERE group_id = '$group_id' GROUP BY group_mem;
-    ";
+    SELECT group_mem 
+    FROM other_transaction 
+    WHERE group_id = '$group_id' GROUP BY group_mem;
+";
     $transaction_customers = $pdo->query($transaction_qry)->fetchAll(PDO::FETCH_COLUMN);
 
     // Get eligible customers for the current auction month

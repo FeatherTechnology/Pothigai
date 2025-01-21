@@ -8,15 +8,41 @@ $currentMonth = date('m'); // Get the current month
 $currentYear = date('Y'); // Get the current year
 
 // Fetch start month from the group_creation table
-$start_month_query = "SELECT start_month FROM group_creation WHERE grp_id = '$group_id'";
+$start_month_query = "SELECT start_month, end_month FROM group_creation WHERE grp_id = '$group_id'";
 $start_month_result = $pdo->query($start_month_query);
 $start_month_row = $start_month_result->fetch(PDO::FETCH_ASSOC);
 $start_month = $start_month_row['start_month'];
+$end_month = $start_month_row['end_month'];
 
-$auction_month_current = ($currentYear * 12 + $currentMonth) - (substr($start_month, 0, 4) * 12 + substr($start_month, 5, 2)) + 1;
+// Extract year and month from start_month and end_month
+$startYear = substr($start_month, 0, 4);
+$startMonth = substr($start_month, 5, 2);
+$endYear = substr($end_month, 0, 4);
+$endMonth = substr($end_month, 5, 2);
+
+// Calculate total months since year 0
+$start_total_months = ($startYear * 12) + $startMonth;
+$current_total_months = ($currentYear * 12) + $currentMonth;
+$end_total_months = ($endYear * 12) + $endMonth;
+
+// Calculate the auction month
+$auction_month_current = $current_total_months - $start_total_months + 1;
+
+// Check if the current month is within the range
+if ($current_total_months <= $end_total_months && $current_total_months >= $start_total_months) {
+    // Current month is within the range, auction month is correct
+    $auction_month_current = $current_total_months - $start_total_months + 1;
+} else {
+    // Adjust the auction month if outside the range by fetching the max auction_month
+    $current_query = "SELECT MAX(auction_month) AS max_auction_month FROM auction_details WHERE group_id = '$group_id'";
+    $curr_statement = $pdo->query($current_query);
+    // Fetch the result and assign to auction_month_current
+    $current_row = $curr_statement->fetch(PDO::FETCH_ASSOC);
+    $auction_month_current = $current_row['max_auction_month'];
+}
 
 // Fetch current auction details including collections
- $current_auction_query = "SELECT
+$current_auction_query = "SELECT
     gc.grp_name,
     ad.auction_month,
     ad.date,
@@ -79,16 +105,10 @@ $collections_query = '';
 // Execute queries
 $current_statement = $pdo->query($current_auction_query);
 $previous_statement = $pdo->query($previous_auction_query);
-// if ($current_statement->rowCount() === 0) {
-//     echo "No current auction data found.";
-// }
-// if ($previous_statement->rowCount() === 0) {
-//     echo "No previous auction data found.";
-// }
 
 $response = [];
 $pending = 0; // Initialize pending amount
-$auction_month=0;
+$auction_month = 0;
 $previous_auction_month = 0;
 $prev_auction_date = '';
 
@@ -100,14 +120,19 @@ if ($current_statement->rowCount() > 0) {
         $previous_collection_amount = (int)$previous_row['collection_amount'];
         $previous_chit_amount = (int)$previous_row['chit_share'];
         $pending += max(0, $previous_chit_amount - $previous_collection_amount);
-       // $previous_auction_month = max(0,(int)$previous_row['auction_month']);
-       $previous_auction_month = max($auction_month, (int)$previous_row['auction_month']);
-       $prev_auction_date = date('d-m-Y', strtotime($previous_row['date']));
+        // $previous_auction_month = max(0,(int)$previous_row['auction_month']);
+        $previous_auction_month = max($auction_month, (int)$previous_row['auction_month']);
+        $prev_auction_date = date('d-m-Y', strtotime($previous_row['date']));
     }
-   $current_auction_month = ($current_row['auction_month'] !== null) ? $current_row['auction_month'] : 0;
-   $current_auction_date=(date('d-m-Y', strtotime($current_row['date']))!== null) ?date('d-m-Y', strtotime($current_row['date'])):0;
-$auction_month=max($current_auction_month,$previous_auction_month);
-$auction_date=max( $current_auction_date,$prev_auction_date);
+    $current_auction_month = ($current_row['auction_month'] !== null) ? $current_row['auction_month'] : 0;
+    $current_auction_date = (date('d-m-Y', strtotime($current_row['date'])) !== null) ? date('d-m-Y', strtotime($current_row['date'])) : 0;
+    $auction_month = max($current_auction_month, $previous_auction_month);
+
+    if ($current_auction_date && strtotime($current_auction_date) >= strtotime($prev_auction_date)) {
+        $auction_date = $current_auction_date;
+    } else {
+        $auction_date = $prev_auction_date;
+    }
 
     $total_collected = (int)$current_row['collection_amount'];
 
@@ -162,11 +187,10 @@ $auction_date=max( $current_auction_date,$prev_auction_date);
         'chit_amount' => (int)$current_row['chit_share'],
         'pending_amt' => $pending,
         'payable_amnt' => $payable_amnt,
-        'payableAmount' => $initial_payable_amnt 
+        'payableAmount' => $initial_payable_amnt
     ];
 } else {
     $response = ['success' => false];
 }
 
 echo json_encode($response);
-?>
